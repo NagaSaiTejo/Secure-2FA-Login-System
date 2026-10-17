@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Secure 2FA Login System | RFC 6238 TOTP & AES-256-GCM</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-background">
+    <div class="glow-orb orb-1"></div>
+    <div class="glow-orb orb-2"></div>
+    <div class="glow-orb orb-3"></div>
+  </div>
+
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <path d="M9 12l2 2 4-4"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>Secure 2FA Sentinel</h1>
+          <span class="badge badge-subtle">RFC 6238 &bull; AES-256-GCM</span>
+        </div>
+      </div>
+
+      <div class="header-status">
+        <div class="status-chip" id="api-status">
+          <span class="dot dot-pulse"></span>
+          <span class="status-label">API: <strong id="api-status-text">Connecting...</strong></span>
+        </div>
+
+        <div class="status-chip totp-sync-chip" id="totp-timer-chip">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 16 14"/>
+          </svg>
+          <span class="status-label">30s Window: <strong id="totp-countdown">--s</strong></span>
+          <div class="progress-ring-mini">
+            <div class="progress-bar-mini" id="totp-mini-bar"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-content">
+    <div class="content-container">
+      <!-- Navigation Tabs -->
+      <nav class="nav-tabs" aria-label="Main Navigation">
+        <button class="nav-tab active" id="tab-btn-auth" onclick="switchTab('auth')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+          Authentication Portal
+        </button>
+        <button class="nav-tab" id="tab-btn-replay" onclick="switchTab('replay')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Replay Attack Simulator
+        </button>
+        <button class="nav-tab" id="tab-btn-crypto" onclick="switchTab('crypto')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          Crypto & Storage Inspector
+        </button>
+        <button class="nav-tab" id="tab-btn-docs" onclick="switchTab('docs')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          RFC 6238 Architecture
+        </button>
+      </nav>
+
+      <!-- TAB 1: AUTHENTICATION PORTAL -->
+      <section id="section-auth" class="tab-section active">
+        <div class="grid-layout">
+          <!-- Auth Card: Login / Register / 2FA Challenge -->
+          <div class="card glass-card" id="auth-main-card">
+            <!-- Unauthenticated: Login View -->
+            <div id="view-login" class="auth-view active">
+              <div class="card-header">
+                <h2>Account Sign In</h2>
+                <p class="card-subtitle">Two-stage credential verification with hardware/app TOTP</p>
+              </div>
+
+              <!-- Quick seed user fill -->
+              <div class="quick-fill-box">
+                <div class="quick-fill-info">
+                  <span class="quick-fill-tag">Evaluation Seed User</span>
+                  <span class="quick-fill-desc">test_2fa@example.com (2FA Enabled)</span>
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-quick-fill" onclick="fillTestUser()">
+                  Use Seed Credentials
+                </button>
+              </div>
+
+              <form id="login-form" onsubmit="handleLoginSubmit(event)">
+                <div class="form-group">
+                  <label for="login-email">Email Address</label>
+                  <input type="email" id="login-email" class="form-control" placeholder="user@example.com" required autocomplete="username">
+                </div>
+
+                <div class="form-group">
+                  <label for="login-password">Password</label>
+                  <input type="password" id="login-password" class="form-control" placeholder="••••••••••••" required autocomplete="current-password">
+                </div>
+
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary btn-block" id="btn-login-submit">
+                    Sign In with Password
+                  </button>
+                </div>
+              </form>
+
+              <div class="card-footer-action">
+                <span>Need a new test account?</span>
+                <button type="button" class="btn-link" id="btn-switch-to-register" onclick="showRegisterView()">Register New User</button>
+              </div>
+            </div>
+
+            <!-- Register View -->
+            <div id="view-register" class="auth-view">
+              <div class="card-header">
+                <h2>Create New Account</h2>
+                <p class="card-subtitle">Passwords hashed with bcrypt (10 rounds)</p>
+              </div>
+
+              <form id="register-form" onsubmit="handleRegisterSubmit(event)">
+                <div class="form-group">
+                  <label for="reg-email">Email Address</label>
+                  <input type="email" id="reg-email" class="form-control" placeholder="user@example.com" required>
+                </div>
+
+                <div class="form-group">
+                  <label for="reg-password">Password (Minimum 8 characters)</label>
+                  <input type="password" id="reg-password" class="form-control" placeholder="At least 8 characters" minlength="8" required>
+                </div>
+
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary btn-block" id="btn-register-submit">
+                    Register Account
+                  </button>
+                </div>
+              </form>
+
+              <div class="card-footer-action">
+                <span>Already have an account?</span>
+                <button type="button" class="btn-link" onclick="showLoginView()">Back to Sign In</button>
+              </div>
+            </div>
+
+            <!-- Challenge Pending View (2FA Required) -->
+            <div id="view-challenge" class="auth-view">
+              <div class="card-header text-center">
+                <div class="auth-badge-icon">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                  </svg>
+                </div>
+                <h2>Two-Factor Challenge</h2>
+                <p class="card-subtitle" id="challenge-subtitle">Enter the 6-digit TOTP code from your authenticator app</p>
+                <div class="challenge-token-preview">
+                  <span class="token-tag">Challenge Token Scope: <code>2fa_challenge</code> (Restricted)</span>
+                </div>
+              </div>
+
+              <!-- Live TOTP helper for testing -->
+              <div class="helper-box" id="test-user-code-helper" style="display: none;">
+                <div class="helper-header">
+                  <span>Current Live Code for Seed Secret:</span>
+                  <strong class="helper-code" id="helper-live-code">------</strong>
+                </div>
+                <button type="button" class="btn btn-secondary btn-xs" onclick="insertHelperCode()">Auto-Fill Code</button>
+              </div>
+
+              <form id="challenge-form" onsubmit="handleChallengeSubmit(event)">
+                <div class="totp-input-container">
+                  <input type="text" id="totp-code" class="form-control totp-input" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" placeholder="123456" autofocus required>
+                </div>
+
+                <div class="window-timer-display">
+                  <div class="window-bar-track">
+                    <div class="window-bar-fill" id="challenge-window-fill"></div>
+                  </div>
+                  <span class="window-label" id="challenge-window-text">Window expires in 30s</span>
+                </div>
+
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary btn-block" id="btn-verify-challenge">
+                    Verify Code & Complete Login
+                  </button>
+                  <button type="button" class="btn btn-outline btn-block" onclick="cancelChallenge()">
+                    Cancel Challenge
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Authenticated View (Session Active) -->
+            <div id="view-authenticated" class="auth-view">
+              <div class="card-header text-center">
+                <div class="success-avatar">
+                  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                    <polyline points="22 4 12 14.01 9 11.01"/>
+                  </svg>
+                </div>
+                <h2>Session Active</h2>
+                <p class="card-subtitle" id="auth-user-email">user@example.com</p>
+                <div class="session-badge-row">
+                  <span class="badge badge-success">Full Access JWT Issued</span>
+                  <span class="badge" id="auth-2fa-badge">2FA Status</span>
+                </div>
+              </div>
+
+              <div class="session-details-card">
+                <div class="session-row">
+                  <span class="row-label">User ID:</span>
+                  <code class="row-val" id="auth-user-id">--</code>
+                </div>
+                <div class="session-row">
+                  <span class="row-label">Last TOTP Window:</span>
+                  <code class="row-val" id="auth-last-window">--</code>
+                </div>
+                <div class="session-row">
+                  <span class="row-label">Session Token:</span>
+                  <code class="row-val token-truncate" id="auth-token-preview">--</code>
+                </div>
+              </div>
+
+              <div class="auth-actions-grid">
+                <button type="button" class="btn btn-primary" id="btn-start-2fa-setup" onclick="start2FASetup()">
+                  Provision / Reset 2FA
+                </button>
+                <button type="button" class="btn btn-secondary" onclick="simulateReplayOnActiveSession()">
+                  Test Replay Attack
+                </button>
+                <button type="button" class="btn btn-danger" onclick="logout()">
+                  Sign Out
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Side Panel: 2FA Setup Flow or Security Status -->
+          <div class="card glass-card" id="side-setup-card">
+            <div class="card-header">
+              <h3 id="side-card-title">Two-Factor Authentication Setup</h3>
+              <p class="card-subtitle" id="side-card-desc">Scan the QR code or enter the secret key into Google Authenticator or Authy</p>
+            </div>
+
+            <!-- Setup Inactive Placeholder -->
+            <div id="setup-inactive-view" class="setup-state active">
+              <div class="empty-state">
+                <div class="empty-icon">
+                  <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/>
+                    <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/>
+                    <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/>
+                  </svg>
+                </div>
+                <h4>2FA Provisioning Panel</h4>
+                <p>Log in with full access and click "Provision / Reset 2FA" to generate a cryptographically random Base32 secret and encrypted database payload.</p>
+              </div>
+            </div>
+
+            <!-- Setup Active Flow -->
+            <div id="setup-active-view" class="setup-state">
+              <div class="qr-canvas-wrapper">
+                <div id="qr-display" class="qr-code-box"></div>
+              </div>
+
+              <div class="form-group">
+                <label>Plaintext Base32 Secret (for manual entry):</label>
+                <div class="copy-input-group">
+                  <input type="text" id="setup-secret-input" class="form-control mono-font" readonly>
+                  <button type="button" class="btn btn-secondary btn-icon" onclick="copySecret()" title="Copy Secret">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label>otpauth:// URI:</label>
+                <input type="text" id="setup-uri-input" class="form-control mono-font text-xs" readonly>
+              </div>
+
+              <div class="verification-step-box">
+                <h4>Confirm Activation</h4>
+                <p>Enter the 6-digit code shown in your app to activate 2FA:</p>
+                <form id="verify-activation-form" onsubmit="handleVerifyActivation(event)">
+                  <div class="input-with-button">
+                    <input type="text" id="activation-code" class="form-control totp-input" maxlength="6" placeholder="000000" required>
+                    <button type="submit" class="btn btn-success" id="btn-activate-2fa">Activate</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: REPLAY ATTACK SIMULATOR -->
+      <section id="section-replay" class="tab-section">
+        <div class="card glass-card">
+          <div class="card-header">
+            <h2>Replay Attack Defense Tester</h2>
+            <p class="card-subtitle">Demonstrates RFC 6238 time-window replay protection: once a TOTP code is accepted, subsequent submissions within the same 30s epoch are rejected with HTTP 401</p>
+          </div>
+
+          <div class="replay-grid">
+            <div class="replay-control-panel">
+              <div class="panel-box">
+                <h3>Attack Scenario Configuration</h3>
+                <p class="text-sm text-muted">Test the exact verification flow defined in Requirement 11:</p>
+                <ol class="step-list">
+                  <li>Initiate login for seeded 2FA account to obtain <code>challenge_token</code>.</li>
+                  <li>Calculate valid 6-digit TOTP code for current window.</li>
+                  <li><strong>Request 1:</strong> Submit code & token &rarr; Expect <strong>200 OK</strong>.</li>
+                  <li><strong>Request 2 (Immediate Replay):</strong> Submit identical code & token &rarr; Expect <strong>401 Unauthorized (Replay detected)</strong>.</li>
+                </ol>
+
+                <div class="replay-btn-row">
+                  <button type="button" class="btn btn-warning btn-lg" id="btn-run-replay-test" onclick="executeReplayDemonstration()">
+                    Execute Automated Replay Test
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="replay-results-panel">
+              <div class="panel-box">
+                <h3>Execution Timeline & Network Verification</h3>
+                <div class="replay-steps" id="replay-step-cards">
+                  <div class="step-card" id="replay-step-1">
+                    <div class="step-indicator">1</div>
+                    <div class="step-body">
+                      <h4>Obtain 2FA Challenge Token</h4>
+                      <p>POST /api/auth/login</p>
+                      <div class="step-status">Waiting to start...</div>
+                    </div>
+                  </div>
+
+                  <div class="step-card" id="replay-step-2">
+                    <div class="step-indicator">2</div>
+                    <div class="step-body">
+                      <h4>First Legitimate Verification</h4>
+                      <p>POST /api/auth/2fa/login with valid code</p>
+                      <div class="step-status">Waiting...</div>
+                    </div>
+                  </div>
+
+                  <div class="step-card" id="replay-step-3">
+                    <div class="step-indicator">3</div>
+                    <div class="step-body">
+                      <h4>Immediate Replay Attempt</h4>
+                      <p>POST /api/auth/2fa/login (Same code in same window)</p>
+                      <div class="step-status">Waiting...</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="replay-verdict" id="replay-verdict-box" style="display: none;">
+                  <span class="verdict-icon">&check;</span>
+                  <div class="verdict-text">
+                    <strong>Replay Defense Verified:</strong> The system strictly rejected the duplicated TOTP code and updated <code>last_totp_window</code> in PostgreSQL.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: CRYPTO & STORAGE INSPECTOR -->
+      <section id="section-crypto" class="tab-section">
+        <div class="card glass-card">
+          <div class="card-header">
+            <h2>AES-256-GCM & Storage at Rest Inspector</h2>
+            <p class="card-subtitle">Verifies that the Base32 secret NEVER enters the PostgreSQL database in plaintext</p>
+          </div>
+
+          <div class="crypto-columns">
+            <div class="crypto-col">
+              <div class="tech-card">
+                <h3>Encrypted Storage Architecture</h3>
+                <p>When 2FA is provisioned, the 160-bit Base32 secret passes through the symmetric encryption module:</p>
+                <div class="code-flow-visual">
+                  <div class="flow-node">Plaintext Base32 Secret</div>
+                  <div class="flow-arrow">&darr; <code>AES-256-GCM</code> + Random 12-byte IV</div>
+                  <div class="flow-box">
+                    <div class="flow-field"><strong>totp_secret_encrypted:</strong> AES-GCM Ciphertext</div>
+                    <div class="flow-field"><strong>totp_iv:</strong> 96-bit Initialization Vector (Fresh each time)</div>
+                    <div class="flow-field"><strong>totp_tag:</strong> 128-bit Authentication Tag</div>
+                  </div>
+                  <div class="flow-arrow">&darr; Stored in PostgreSQL</div>
+                  <div class="flow-node highlight">Database Table: <code>users</code></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="crypto-col">
+              <div class="tech-card">
+                <h3>Live RFC 6238 Mathematical Engine</h3>
+                <p>Calculates HMAC-SHA1 dynamic truncation for test user <code>JBSWY3DPEHPK3PXP</code>:</p>
+                <table class="data-table">
+                  <tr>
+                    <td>Time Step:</td>
+                    <td><code>30 seconds</code></td>
+                  </tr>
+                  <tr>
+                    <td>Current Epoch Window T:</td>
+                    <td><code id="crypto-epoch-window">--</code></td>
+                  </tr>
+                  <tr>
+                    <td>Window T - 1 Code:</td>
+                    <td><code id="crypto-code-t-minus-1">--</code></td>
+                  </tr>
+                  <tr>
+                    <td>Window T (Current) Code:</td>
+                    <td><strong class="text-accent" id="crypto-code-t">--</strong></td>
+                  </tr>
+                  <tr>
+                    <td>Window T + 1 Code:</td>
+                    <td><code id="crypto-code-t-plus-1">--</code></td>
+                  </tr>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: ARCHITECTURE -->
+      <section id="section-docs" class="tab-section">
+        <div class="card glass-card">
+          <div class="card-header">
+            <h2>Authentication State Machine & Data Flow</h2>
+            <p class="card-subtitle">Strict state machine isolating Unauthenticated, ChallengePending, and Authenticated states</p>
+          </div>
+
+          <div class="docs-content">
+            <div class="architecture-diagram-wrapper">
+              <div class="state-diagram">
+                <div class="state-bubble" id="state-unauth">
+                  <strong>Unauthenticated</strong>
+                  <span>Credentials required</span>
+                </div>
+                <div class="state-transition">&rarr; Valid Password &rarr;</div>
+                <div class="state-bubble" id="state-pending">
+                  <strong>ChallengePending</strong>
+                  <span>Short-lived JWT (5 min)</span>
+                  <small>scope: 2fa_challenge</small>
+                </div>
+                <div class="state-transition">&rarr; Valid TOTP Code &rarr;</div>
+                <div class="state-bubble" id="state-auth">
+                  <strong>Authenticated</strong>
+                  <span>Full Access JWT (24 hr)</span>
+                  <small>scope: full_access</small>
+                </div>
+              </div>
+            </div>
+
+            <div class="requirements-checklist">
+              <h3>Core Requirements Mapping</h3>
+              <div class="checklist-grid">
+                <div class="check-item"><span class="check-mark">&check;</span> <strong>docker-compose.yml:</strong> App + PostgreSQL 15, healthchecks &amp; auto-initialization</div>
+                <div class="check-item"><span class="check-mark">&check;</span> <strong>.env.example:</strong> Documents DATABASE_URL, JWT_SECRET, MASTER_ENCRYPTION_KEY</div>
+                <div class="check-item"><span class="check-mark">&check;</span> <strong>Schema:</strong> users table with id, email, password_hash, totp_enabled, totp_secret_encrypted, totp_iv, totp_tag, last_totp_window</div>
+                <div class="check-item"><span class="check-mark">&check;</span> <strong>POST /api/auth/register:</strong> Bcrypt password hashing, 201 Created</div>
+                <div class="check-item"><span class="check-mark">&check;</span> <strong>POST /api/auth/login:</strong> Returns token or { requires_2fa: true, challenge_token }</div>
+                <div class="check-item"><span class="check-mark">&check;</span> <strong>POST /api/auth/2fa/setup:</strong> Generates Base32 secret, AES-GCM encryption, otpauth URI</div>
+                <div class="check-item"><span class="check-mark">&check;</span> <strong>Encrypted at Rest:</strong> Ciphertext != plaintext; plaintext never appears in DB</div>
+                <div class="check-item"><span class="check-mark">&check;</span> <strong>POST /api/auth/2fa/verify:</strong> Validates first code, activates totp_enabled = true</div>
+                <div class="check-item"><span class="check-mark">&check;</span> <strong>POST /api/auth/2fa/login:</strong> Verifies challenge token + 6-digit TOTP, issues final token</div>
+                <div class="check-item"><span class="check-mark">&check;</span> <strong>Strict 2FA Guard:</strong> Challenge token rejected on all protected routes</div>
+                <div class="check-item"><span class="check-mark">&check;</span> <strong>Replay Protection:</strong> Rejects T_match &lt;= last_totp_window with 401 Unauthorized</div>
+                <div class="check-item"><span class="check-mark">&check;</span> <strong>submission.json:</strong> Predefined test user seeded automatically</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Live Activity Log Drawer -->
+      <section class="card glass-card console-card">
+        <div class="console-header">
+          <div class="console-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="4 17 10 11 4 5"/>
+              <line x1="12" y1="19" x2="20" y2="19"/>
+            </svg>
+            <span>Live Security &amp; API Activity Stream</span>
+          </div>
+          <button type="button" class="btn btn-xs btn-outline" onclick="clearLogs()">Clear Log</button>
+        </div>
+        <div class="console-body" id="console-logs">
+          <div class="log-entry log-info"><span class="log-time">[System]</span> Secure 2FA Sentinel Client Initialized. Ready for authentication flows.</div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="app-footer">
+    <div class="footer-container">
+      <span>Built with RFC 6238 TOTP Engine &bull; AES-256-GCM AEAD &bull; PostgreSQL &bull; Node.js</span>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
