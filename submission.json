@@ -1,0 +1,7 @@
+{
+  "testUser": {
+    "email": "test_2fa@example.com",
+    "password": "securePassword123",
+    "plaintextTotpSecret": "JBSWY3DPEHPK3PXP"
+  }
+}
